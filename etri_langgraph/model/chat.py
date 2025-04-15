@@ -6,8 +6,9 @@ from langchain.chat_models.base import BaseChatModel
 from langchain.schema import BaseMessage, ChatResult
 from langchain_community.chat_models import ChatOllama
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from etri_langgraph.utils.registry import model_registry
 
-
+@model_registry(name="chat")
 class GeneralChatModel(BaseChatModel):
     model: Optional[str] = None
     max_tokens: int

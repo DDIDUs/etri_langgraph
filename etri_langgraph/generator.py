@@ -7,7 +7,7 @@ from traceback import format_exc
 from typing import Any, List, Optional
 
 import yaml
-from etri_langgraph.config import Config 
+from etri_langgraph.config import Config
 from etri_langgraph.graph import Graph
 from etri_langgraph.loader import Loader
 from langchain_core.documents import Document
@@ -17,6 +17,10 @@ from tqdm.asyncio import tqdm_asyncio
 import wandb
 
 """registry """
+from etri_langgraph.utils import registry  # isort:skip
+from etri_langgraph.model import *
+from etri_langgraph.prompt import *
+
 
 class Generator(BaseModel):
     verbose: bool = False
@@ -27,7 +31,7 @@ class Generator(BaseModel):
     wandb_on: bool = False
     langfuse_on: bool = False
     rerun: bool = False
-    max_concurrency: int = 5
+    max_concurrency: int = 4
 
     run_name: str = None  # if None, config_path.stem is used
     config_path: Path = None
@@ -53,17 +57,16 @@ class Generator(BaseModel):
         self._load_datasets()
         self._init_wandb()
         self._compile_graph()
-    
-    def _load_config(self):     #llama3.1_8b-ijcai-gr-zero.yaml 분석해서 self.config에 데이터 로드 
+
+    def _load_config(self):
         if self.config_path is not None:
             self.config = Config(path=self.config_path)
-            print(self.config)
         elif self.config is None:
             raise ValueError("Either config_path or config should be provided")
         else:
             pass
 
-    def _init_result_dir(self):  #디렉토리 생성 results/{self.run_name}/results 
+    def _init_result_dir(self):
         if self.run_name is None:
             self.run_name = self.config_path.stem
         if self.do_save:
@@ -71,17 +74,17 @@ class Generator(BaseModel):
             self.results_dir = self.output_dir / "results"
             self.results_dir.mkdir(parents=True, exist_ok=True)
 
-    def _load_api_keys(self):       #os_environ에 api_key 정보 설정
+    def _load_api_keys(self):
         api_keys = json.loads(Path(self.api_keys_path).read_text())
         for k, v in api_keys.items():
             os.environ[k] = v
 
-    def _load_datasets(self):     # dataset 처리
-        loader = Loader(config=self.config)  
-        self.datasets = loader.run().result    #source data download, dataset의 필드 처리 dataset에 target 포함
-        self.target_dataset = self.datasets.get(self.target_dataset_name, {})   #target에 해당하는 데이터만 가져옴
-        self.example_dataset = self.datasets.get(self.example_dataset_name, {})   #없어
-        del self.datasets[self.target_dataset_name]    #중복 데이터 삭제 self.target_dataset
+    def _load_datasets(self):
+        loader = Loader(config=self.config)
+        self.datasets = loader.run().result
+        self.target_dataset = self.datasets.get(self.target_dataset_name, {})
+        self.example_dataset = self.datasets.get(self.example_dataset_name, {})
+        del self.datasets[self.target_dataset_name]
         if self.example_dataset_name in self.datasets:
             del self.datasets[self.example_dataset_name]
 
@@ -101,9 +104,9 @@ class Generator(BaseModel):
             notes=self.config.description,
         )
 
-        wandb.config.update(self.config.model_dump()) 
+        wandb.config.update(self.config.model_dump())
 
-    def _compile_graph(self):   #graph 설정     llama3.1_8b.yaml의 속성대로 registry에 각 기능을 등록하고 chain graph를 만들어서 dependency가 있으면 만들고 node 생성하고 edge 생성하고 다 연결
+    def _compile_graph(self):
         self.graph = Graph(
             config=self.config.graph,
             examples=self.example_dataset,
@@ -117,7 +120,16 @@ class Generator(BaseModel):
         start: Optional[int] = None,
         end: Optional[int] = None,
     ):
-        targets = self.target_dataset     #target dataset yaml 타입에 따른 변경된 데이터 셋
+        targets = self.target_dataset
+        if n is not None:
+            targets = {k: v for k, v in list(targets.items())[:n]}
+        elif start is not None and end is not None:
+            targets = {k: v for k, v in list(targets.items())[start:end]}
+        elif ids is not None:
+            targets = {k: v for k, v in targets.items() if k in ids}
+        else:
+            pass
+
         asyncio.run(self._run(targets))
 
         return self
@@ -127,9 +139,7 @@ class Generator(BaseModel):
         targets: dict,
     ):
         tasks = []
-#        print(self.config)
         sem = asyncio.Semaphore(self.max_concurrency)
-        #sem = asyncio.Semaphore(1)
         for id, target in targets.items():
             task = self._run_one(id, target, sem)
             tasks.append(task)
@@ -161,7 +171,6 @@ class Generator(BaseModel):
                     logging.error(format_exc())
 
         if not done:
-
             async with sem:
                 if self.langfuse_on:
                     from langfuse.callback import CallbackHandler
@@ -173,16 +182,7 @@ class Generator(BaseModel):
 
                 config.update({"id": id, "verbose": self.verbose})
                 try:
-#                    result = await self.graph.ainvoke([target], config=config)     # cot 실행행
-                    state = [{
-                            "config": self.config.model_dump(),
-                            "target": target
-                    }]
-                    final_state = self.graph.invoke(state, config=config)
-                    # final_state = self.graph.invoke( [target], config=config)
-                    for idx, state in enumerate(final_state):
-                        print(f"Step {idx+1}: {state}")
-#                    result = await self.graph.invoke([target], config=config)     # cot 실행행
+                    result = await self.graph.ainvoke([target], config=config)
                     logging.info(f"Done: {id}")
                 except Exception as e:
                     logging.error(f"Error in running {id}")
@@ -221,7 +221,6 @@ class Generator(BaseModel):
 
     def _save_files(self, id: str, result: str):
         output_dir = self.results_dir / id
-
         def _rec_save_files(result, dir, key):
             dir.mkdir(parents=True, exist_ok=True)
             key = str(key)

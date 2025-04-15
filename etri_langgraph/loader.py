@@ -11,13 +11,13 @@ from elasticsearch import Elasticsearch, helpers
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from etri_langgraph.config import Config, Config2, DatasetConfig, SourceConfig
+from etri_langgraph.config import Config, DatasetConfig, SourceConfig
 
 logger = logging.getLogger(__name__)
 
 
 class Loader(BaseModel):
-    config: Config2 = None
+    config: Config = None
     config_path: str = None
     api_keys_path: str = "api_keys.json"
 
@@ -143,3 +143,69 @@ class Loader(BaseModel):
 
     def exit(self):
         pass
+
+def _load_dict(
+    sources,
+    primary_key,
+    fields,
+    query: str = None,
+    cache_dir: str = None,
+    custom_lambda: str = None,
+):
+    config = {
+        "primary_key": primary_key,
+        "fields": fields,
+        "query": query,
+    }
+    if cache_dir is not None:
+        cache_dir = Path(cache_dir)
+        config_path = cache_dir / "config.json"
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                cache_config = json.load(f)
+            if cache_config == config:
+                data_path = cache_dir / "data.json"
+                if data_path.exists():
+                    with open(data_path, "r") as f:
+                        return json.load(f)
+
+    result = {}
+
+    primary_field = list(filter(lambda x: x.get("name") == primary_key, fields))[0]
+    ids = sources[primary_field.get("source")][primary_field.get("key")]
+    for i, id in tqdm(enumerate(ids)):
+        result[id] = {}
+        for field in fields:
+            source = sources[field.get("source")]
+            result[id][field.get("name")] = source[i][field.get("key")]
+
+    if custom_lambda is not None:
+        try:
+            func_obj = eval(custom_lambda)
+        except:
+            local_namespace = {}
+            exec(custom_lambda, globals(), local_namespace)
+            func_obj = local_namespace["func"]
+
+        result = {k: func_obj(v) for k, v in result.items()}
+
+    if query is not None:
+        from tinydb import TinyDB, where
+        from tinydb.storages import MemoryStorage
+
+        db = TinyDB(storage=MemoryStorage)
+        db.insert_multiple(list(result.values()))
+        result = db.search(eval(query, {"where": where}))
+        result = {r[primary_key]: r for r in result}
+
+    if cache_dir is not None:
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True)
+
+        with open(cache_dir / "config.json", "w") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+        with open(cache_dir / "data.json", "w") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+    return result

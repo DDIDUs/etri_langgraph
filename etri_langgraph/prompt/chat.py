@@ -6,6 +6,9 @@ from langchain.prompts import HumanMessagePromptTemplate as HMPT
 from langchain.prompts import SystemMessagePromptTemplate as SMPT
 from langchain.prompts.few_shot import FewShotChatMessagePromptTemplate
 
+from etri_langgraph.utils.registry import prompt_registry
+
+@prompt_registry(name="chat")
 def chat_prompt(
     examples: list,
     body_template_paths: List[str],

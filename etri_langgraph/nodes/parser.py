@@ -1,21 +1,43 @@
-import copy
-from typing import Dict, List, Optional
+import re
+from typing import Any, List, Optional, Dict
 
-from etri_langgraph.utils.sampling import get_node_config_by_name, extract_inputs_from_target
-from etri_langgraph.utils.registry import register_module
+from etri_langgraph.utils.registry import node_registry, BaseNode
 
-@register_module("parser", "parser_jun")
-def node3(state: List[dict]):
-    current_state = copy.deepcopy(state[-1]) if state else {}
-    node_info = get_node_config_by_name(current_state, "parser_jun")
-    input_keys = node_info["input_keys"]
-    result = extract_inputs_from_target(current_state, input_keys)
 
-    response_text = "parser_jun completed"
-    
-    if response_text:        
-        current_state.setdefault("target", {})
-        current_state["target"]["parser_jun_out"] = response_text            
+@node_registry(name="parser")
+class JsonParser(BaseNode):
+    def __init__(
+        self,
+        key: str,
+        examples: Optional[dict] = None,
+        **kwargs,
+    ):
+        self.key = key
+        self.examples = examples
+        self.kwargs = kwargs
 
-    state.append(current_state)
-    return state
+    def preprocess(self, text: str) -> str:
+        code_block_pattern = r"```[a-z]*\n(.*?)```"
+        matches = re.findall(code_block_pattern, text, re.DOTALL)
+
+        if matches:
+            return matches[-1]
+        
+        incomplete_pattern = r"```[a-z]*\n(.*?)$"
+        fallback_matches = re.findall(incomplete_pattern, text, re.DOTALL)
+
+        if fallback_matches:
+            return fallback_matches[-1]
+
+        return text  
+
+    async def run(self, data: Dict[str, Any], config: Optional[dict] = None) -> Dict[str, Any]:
+        config = config or {}
+        input_key = self.kwargs.get("input_keys", [])[-1]
+        output_key = self.kwargs.get("output_key", "parsed_output")
+
+        raw_input = data.get(input_key, "")
+        parsed_result = self.preprocess(raw_input)
+
+        data[output_key] = parsed_result
+        return data

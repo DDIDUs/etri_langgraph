@@ -1,38 +1,54 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Dict
 import copy
 
-from etri_langgraph.utils.sampling import get_node_config_by_name, extract_inputs_from_target
-from etri_langgraph.utils.registry import register_module
-from etri_langgraph.model.chat import GeneralChatModel
+from etri_langgraph.utils.registry import (
+    node_registry,
+    prompt_registry,
+    model_registry,
+    BaseNode,
+)
 
-@register_module("llm", "llm_jun")
-def node2(state: List[dict]):
-    current_state = copy.deepcopy(state[-1]) if state else {}
-    node_info = get_node_config_by_name(current_state, "llm_jun")
-    input_keys = node_info["input_keys"]
-    result = extract_inputs_from_target(current_state, input_keys)
-
-    
-    messages = result["prompt_jun_out"]
+from langchain_core.output_parsers import StrOutputParser
 
 
-    chat_model = GeneralChatModel(
-        model="meta-llama/Llama-3.1-8B-Instruct",               # 또는 meta-llama/Llama-3.1-8B-Instruct 등
-        max_tokens=16384,
-        temperature=0.7,
-        top_p=1.0,
-        platform="vllm",          # "azure", "vllm", "open_webui" 등도 가능
-    )
+@node_registry(name="llm")
+class LLMNode(BaseNode):
+    def __init__(
+        self,
+        key: str,
+        examples: Optional[dict] = None,
+        llm: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
+        self.key = key
+        self.examples = examples
+        self.llm = llm or {}
+        self.kwargs = kwargs
 
-    try:
-        result = chat_model._generate(messages=messages)
-        response_text = result.generations[0].message.content
-    except Exception as e:
-        response_text = f"[node2] LLM error: {str(e)}"
+    def preprocess(self):
+        prompt_conf = self.kwargs.get("prompt", {})
+        prompt_type = prompt_conf.get("type")
+        prompt_kwargs = prompt_conf.get("kwargs", {})
 
-    if response_text:
-        current_state.setdefault("target", {})
-        current_state["target"]["llm_jun_out"] = response_text            
+        prompt = prompt_registry[prompt_type](
+            examples=self.examples,
+            **prompt_kwargs,
+        )
+        model = model_registry[prompt_type](**self.llm)
 
-    state.append(current_state)
-    return state
+        chain = prompt | model | StrOutputParser()
+        chain.name = "llm_chain"
+
+        return chain
+
+    async def run(self, data: List[dict], config: Optional[dict] = None) -> dict:
+        config = config or {}
+
+        chain = self.preprocess()
+        latest_data = data[-1]
+
+        result = await chain.ainvoke(latest_data, config=config)
+        output_key = self.kwargs.get("output_key", "output")
+
+        latest_data.update({output_key: result})
+        return latest_data

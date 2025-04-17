@@ -10,14 +10,8 @@ model_registry = Registry()
 class BaseNode:
     __slots__ = ()
 
-    def preprocess(self, data):
-        return None
-
     async def run(self, data, config={}):
         raise NotImplementedError("run() must be implemented.")
-
-    def postprocess(self, data):
-        pass
 
     async def __call__(self, data, config={}):
         result = await self.run(data=data, config=config)

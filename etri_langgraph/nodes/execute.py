@@ -2,9 +2,8 @@ import os
 from itertools import zip_longest
 from typing import Any, Dict, List, Optional
 
-from expand_langchain.utils.registry import node_registry, BaseNode
+from etri_langgraph.utils.registry import node_registry, BaseNode
 from langchain_community.utilities.requests import JsonRequestsWrapper
-
 
 @node_registry(name="execute")
 class ExecuteNode(BaseNode):
@@ -22,8 +21,7 @@ class ExecuteNode(BaseNode):
         self.stdin_key = stdin_key
         self.kwargs = kwargs
 
-    async def run(self, data: Dict[str, Any], config: Optional[Dict] = None) -> Dict[str, Any]:
-        config = config or {}
+    async def run(self, data: Dict[str, Any]) -> Dict[str, Any]:
         result = {self.key: []}
         requests_wrapper = JsonRequestsWrapper()
 

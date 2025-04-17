@@ -29,7 +29,6 @@ class Graph(BaseModel):
     def run(self):
         builder = StateGraph(List[dict])    #langgraph
         nodes = self.config.nodes    #node 설정
-        print(nodes)
         for node in nodes:      #initialize, excute
             func = node_registry[node.type](
                 key=node.name,

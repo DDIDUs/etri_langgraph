@@ -83,20 +83,10 @@ class Loader(BaseModel):
                 sort_key = source.kwargs.get("sort_key")
                 data_yaml = yaml.load(Path(path).read_text(), Loader=yaml.FullLoader)
                 sources[name] = Dataset.from_list(data_yaml).sort(sort_key)
-
-            elif source.type == "postgresql":
-                import psycopg2
-
-                sources[name] = psycopg2.connect(
-                    dbname=source.kwargs.get("dbname"),
-                    user=os.getenv("POSTGRES_USER"),
-                    password=os.getenv("POSTGRES_PASSWORD"),
-                    host=os.getenv("POSTGRES_HOST"),
-                    port=os.getenv("POSTGRES_PORT"),
-                )
-
+                
             elif source.type == "user_input":
                 sources[name] = None
+                
             else:
                 raise ValueError(f"Unsupported source type: {source.type}")
 
@@ -110,16 +100,6 @@ class Loader(BaseModel):
             name = dataset.name
             if dataset.type == "dict":
                 result = _load_dict(sources, **dataset.kwargs)
-
-            elif dataset.type == "db-schema":
-                if dataset.remove and not dataset.kwargs.get("rerun"):
-                    continue
-                result = _load_db_schema(sources, **dataset.kwargs)
-
-            elif dataset.type == "db-value":
-                if dataset.remove and not dataset.kwargs.get("rerun"):
-                    continue
-                result = _load_db_value(sources, **dataset.kwargs)
 
             elif dataset.type == "user_input":
                 result = None

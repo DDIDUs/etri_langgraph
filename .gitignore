@@ -169,3 +169,6 @@ api_keys.json
 data/
 results/
 wandb/
+
+*.pyc
+__pycache__/
